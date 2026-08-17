@@ -89,16 +89,36 @@ Without `GROQ_API_KEY` the system answers **extractively** (top parent passage).
 
 Without `SARVAM_API_KEY` you can still type queries. Voice needs Sarvam.
 
-### Index a real MSMARCO-XI subsample
+### Full train index (big VM)
+
+This is not model training — it indexes **every train query/passage** in MSMARCO-XI.
+
+```bash
+# All Indic train languages + English once (from the Hindi parquet).
+# Telugu train is unpublished; skipped.
+# ~3.7GB download per language (Hub cache). Resume skips finished shards.
+python -m ingest.full_train
+
+# Or only Hindi + English, still the complete train split (no 8k cap):
+python -m ingest.full_train --languages hi,en
+```
+
+Needs disk for the parquet cache (~50GB if you do every language) plus FAISS/BM25 shards. Uses CUDA automatically if PyTorch sees a GPU (`--batch-size 256` default). If a language finishes (`indexes/<lang>/shard_meta.json`), it is skipped; `--overwrite` rebuilds.
+
+Then start the API on that machine:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 7860
+```
+
+### Small subsample (laptops)
 
 ```powershell
 python -m ingest.subsample --languages hi,en --max-queries 8000 --split train
 python -m ingest.build_index --languages hi,en
 ```
 
-8000 Hindi queries ≈ tens of thousands of passages after expanding `Translated_passages` / `English_passages` and running dedup. Raise `--max-queries` toward 30k–80k when you have overnight indexing time. Add `ta` or `bn` the same way.
-
-Use `--split validation` and hold those queries out of the train index for the latency/quality notebook.
+Do **not** call `load_dataset("ai4bharat/MSMARCO-XI", "hi")` — that config does not exist. Hindi is `train/hintrain.parquet`. Set `HF_TOKEN` for higher Hub rate limits.
 
 ## API
 

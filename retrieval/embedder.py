@@ -29,8 +29,20 @@ class Embedder:
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self.model_name)
-            self._dim = int(self._model.get_sentence_embedding_dimension())
+            device = "cpu"
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    device = "cuda"
+            except Exception:
+                device = "cpu"
+            self._model = SentenceTransformer(self.model_name, device=device)
+            dim_fn = getattr(
+                self._model, "get_embedding_dimension", None
+            ) or getattr(self._model, "get_sentence_embedding_dimension")
+            self._dim = int(dim_fn())
+            print(f"Embedder {self.model_name} on {device}, dim={self._dim}")
         return self._model
 
     @property

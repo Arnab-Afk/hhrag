@@ -23,3 +23,21 @@ def test_query_type_numeric():
     assert guess_query_type("How many overs in T20?") == "NUMERIC"
     assert guess_query_type("कितना GST है?") == "NUMERIC"
     assert guess_query_type("Who drafted the constitution?") == "PERSON"
+
+
+def test_msmarco_parquet_paths():
+    from ingest.hf_source import parquet_path
+
+    assert parquet_path("hi", "train") == "train/hintrain.parquet"
+    assert parquet_path("hi", "validation") == "validation/hinval.parquet"
+    assert parquet_path("gu", "train") == "train/gujtrain.parquet"
+    assert parquet_path("or", "validation") == "validation/orival.parquet"
+    try:
+        parquet_path("te", "train")
+        raise AssertionError("expected missing Telugu train file")
+    except FileNotFoundError:
+        pass
+    from ingest.hf_source import TRAIN_LANGUAGES
+
+    assert "hi" in TRAIN_LANGUAGES
+    assert "te" not in TRAIN_LANGUAGES

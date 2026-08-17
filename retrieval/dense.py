@@ -90,7 +90,11 @@ class DenseIndex:
         faiss_path = path / "faiss.index"
         npy_path = path / "vectors.npy"
         if backend.startswith("faiss") and _HAS_FAISS and faiss_path.exists():
-            store._index = faiss.read_index(str(faiss_path))
+            flags = 0
+            mmap = getattr(faiss, "IO_FLAG_MMAP", 0)
+            if mmap:
+                flags |= mmap
+            store._index = faiss.read_index(str(faiss_path), flags) if flags else faiss.read_index(str(faiss_path))
             store.use_hnsw = True
             return store
         if npy_path.exists():

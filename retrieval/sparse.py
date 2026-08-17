@@ -17,13 +17,18 @@ class SparseIndex:
 
     def add(self, documents: list[str]) -> None:
         self._tokens.extend(lexical_tokens(doc) for doc in documents)
-        self._bm25 = BM25Okapi(self._tokens)
+        self._bm25 = None
+
+    def build(self) -> None:
+        if self._bm25 is None and self._tokens:
+            self._bm25 = BM25Okapi(self._tokens)
 
     @property
     def ntotal(self) -> int:
         return len(self._tokens)
 
     def search(self, query: str, top_k: int) -> tuple[list[float], list[int]]:
+        self.build()
         if not self._bm25 or not self._tokens:
             return [], []
         q = lexical_tokens(query)
@@ -37,6 +42,7 @@ class SparseIndex:
         return [float(scores[i]) for i in order], [int(i) for i in order]
 
     def save(self, path: Path) -> None:
+        self.build()
         path.mkdir(parents=True, exist_ok=True)
         with (path / "bm25.pkl").open("wb") as handle:
             pickle.dump(self._tokens, handle, protocol=pickle.HIGHEST_PROTOCOL)

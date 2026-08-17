@@ -35,6 +35,24 @@ def hamming(a: int, b: int) -> int:
     return (a ^ b).bit_count()
 
 
+class StreamingDeduper:
+    """O(1) exact-fold dedup for full-corpus ingest. Pairwise simhash is O(n²)."""
+
+    def __init__(self) -> None:
+        self._seen: set[bytes] = set()
+        self.kept = 0
+        self.dropped = 0
+
+    def keep(self, text: str) -> bool:
+        digest = hashlib.blake2b(_fold(text or "").encode("utf-8"), digest_size=16).digest()
+        if digest in self._seen:
+            self.dropped += 1
+            return False
+        self._seen.add(digest)
+        self.kept += 1
+        return True
+
+
 def dedup_texts(
     texts: Iterable[str],
     max_hamming: int = 3,

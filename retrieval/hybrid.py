@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import orjson
 
 from app.config import Settings, get_settings
@@ -50,7 +51,18 @@ class LanguageShard:
     @classmethod
     def load(cls, path: Path) -> "LanguageShard":
         meta = orjson.loads((path / "shard_meta.json").read_bytes())
-        rows = orjson.loads((path / "chunks.json").read_bytes())
+        jsonl = path / "chunks.jsonl"
+        blob = path / "chunks.json"
+        if jsonl.exists():
+            rows = [
+                orjson.loads(line)
+                for line in jsonl.open("rb")
+                if line.strip()
+            ]
+        elif blob.exists():
+            rows = orjson.loads(blob.read_bytes())
+        else:
+            raise FileNotFoundError(f"No chunks.jsonl or chunks.json in {path}")
         dense = DenseIndex.load(path)
         sparse = SparseIndex.load(path)
         return cls(language=meta["language"], chunks=rows, dense=dense, sparse=sparse)
@@ -91,41 +103,53 @@ class LanguageShard:
 class HybridRetriever:
     def __init__(
         self,
-        shards: dict[str, LanguageShard],
+        shard_dirs: dict[str, Path],
         embedder: Embedder | None = None,
         settings: Settings | None = None,
     ) -> None:
-        self.shards = shards
+        self.shard_dirs = shard_dirs
+        self._cache: dict[str, LanguageShard] = {}
         self.embedder = embedder or get_embedder()
         self.settings = settings or get_settings()
+
+    @property
+    def shards(self) -> dict[str, Path]:
+        return self.shard_dirs
+
+    def _shard(self, name: str) -> LanguageShard:
+        if name not in self._cache:
+            self._cache[name] = LanguageShard.load(self.shard_dirs[name])
+            logger.info("Loaded shard %s", name)
+        return self._cache[name]
 
     @classmethod
     def load(cls, index_dir: Path | None = None) -> "HybridRetriever":
         settings = get_settings()
         root = Path(index_dir or settings.index_dir)
-        shards: dict[str, LanguageShard] = {}
+        shard_dirs: dict[str, Path] = {}
         if not root.exists():
             raise FileNotFoundError(
                 f"No indexes at {root}. Run: python -m ingest.build_index --demo"
             )
         for child in sorted(root.iterdir()):
-            if child.is_dir() and (child / "chunks.json").exists():
-                shards[child.name] = LanguageShard.load(child)
-        if not shards:
+            if not child.is_dir():
+                continue
+            if (child / "chunks.jsonl").exists() or (child / "chunks.json").exists():
+                shard_dirs[child.name] = child
+        if not shard_dirs:
             raise FileNotFoundError(f"No language shards in {root}")
-        logger.info("Loaded shards: %s", ", ".join(shards))
-        return cls(shards=shards, settings=settings)
+        logger.info("Shard dirs: %s", ", ".join(shard_dirs))
+        return cls(shard_dirs=shard_dirs, settings=settings)
 
     def _plan_shards(self, language_code: str | None) -> list[str]:
         preferred = shard_for_language_code(language_code)
-        if preferred and preferred in self.shards:
+        if preferred and preferred in self.shard_dirs:
             plan = [preferred]
-            if preferred != "en" and "en" in self.shards:
+            if preferred != "en" and "en" in self.shard_dirs:
                 plan.append("en")
             return plan
-        # Unknown language: prefer Hindi+English if present, else all.
-        plan = [name for name in ("hi", "en") if name in self.shards]
-        for name in self.shards:
+        plan = [name for name in ("hi", "en") if name in self.shard_dirs]
+        for name in self.shard_dirs:
             if name not in plan:
                 plan.append(name)
         return plan
@@ -144,7 +168,7 @@ class HybridRetriever:
         collected: list[Chunk] = []
         searched: list[str] = []
         for i, shard_name in enumerate(plan):
-            shard = self.shards[shard_name]
+            shard = self._shard(shard_name)
             searched.append(shard_name)
             hits = shard.search(
                 query,
@@ -156,8 +180,6 @@ class HybridRetriever:
             )
             collected.extend(hits)
             best = max((c.score for c in collected), default=0.0)
-            # Skip remaining shards (e.g. English fallback) if the
-            # language-routed shard already cleared the gate.
             if i == 0 and best >= settings.min_retrieval_score and len(plan) > 1:
                 break
 

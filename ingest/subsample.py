@@ -5,28 +5,13 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from datasets import load_dataset
 from tqdm import tqdm
 
 from app.config import ROOT, get_settings
 from chunking.types import RawPassage
+from ingest.hf_source import iter_language_rows, parquet_path
 
-LANG_FILES = {
-    "as": "Assamese",
-    "bn": "Bengali",
-    "gu": "Gujarati",
-    "hi": "Hindi",
-    "kn": "Kannada",
-    "ml": "Malayalam",
-    "mr": "Marathi",
-    "ne": "Nepali",
-    "or": "Odia",
-    "pa": "Punjabi",
-    "sa": "Sanskrit",
-    "ta": "Tamil",
-    "te": "Telugu",
-    "ur": "Urdu",
-}
+__all__ = ["parquet_path", "subsample", "row_to_passages"]
 
 
 def _as_list(value) -> list:
@@ -34,7 +19,23 @@ def _as_list(value) -> list:
         return []
     if isinstance(value, list):
         return value
-    return list(value)
+    try:
+        return list(value)
+    except TypeError:
+        return [value]
+
+
+def _passages_blob(row: dict) -> dict:
+    passages = row.get("passages")
+    if isinstance(passages, dict):
+        return passages
+    if any(k in row for k in ("Translated_passages", "English_passages", "is_selected")):
+        return {
+            "is_selected": row.get("is_selected"),
+            "Translated_passages": row.get("Translated_passages"),
+            "English_passages": row.get("English_passages"),
+        }
+    return {}
 
 
 def row_to_passages(
@@ -43,7 +44,7 @@ def row_to_passages(
     include_english: bool,
     selected_only: bool,
 ) -> list[RawPassage]:
-    passages = row.get("passages") or {}
+    passages = _passages_blob(row)
     selected = _as_list(passages.get("is_selected"))
     translated = _as_list(passages.get("Translated_passages"))
     english = _as_list(passages.get("English_passages"))
@@ -88,6 +89,7 @@ def subsample(
     split: str,
     selected_ratio: float,
     out_dir: Path,
+    cache_dir: str | None = None,
 ) -> dict[str, list[RawPassage]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     by_lang: dict[str, list[RawPassage]] = defaultdict(list)
@@ -97,21 +99,26 @@ def subsample(
     for lang in languages:
         if lang == "en":
             continue
-        print(f"Streaming {lang} / {split} (max_queries={max_queries})...")
-        ds = load_dataset("ai4bharat/MSMARCO-XI", lang, split=split, streaming=True)
+        print(f"Loading {lang} / {split} (keep {max_queries} queries)...")
+        # Read extra rows so type-cap skips still fill the budget.
+        ds = iter_language_rows(
+            lang,
+            split,
+            limit=max(max_queries * 4, max_queries + 200),
+            cache_dir=cache_dir,
+        )
         seen = 0
         selected_budget = int(max_queries * selected_ratio)
         other_budget = max_queries - selected_budget
         n_sel = n_other = 0
         type_counts: dict[str, int] = defaultdict(int)
 
-        for row in tqdm(ds, total=max_queries, desc=lang):
+        for example in tqdm(ds, total=max_queries, desc=lang):
+            row = dict(example)
             qtype = row.get("query_type") or "DESCRIPTION"
-            # Light stratification: cap any one type at 45% of the budget.
             if type_counts[qtype] >= int(max_queries * 0.45) and seen > 20:
                 continue
-            passages = row.get("passages") or {}
-            flags = _as_list(passages.get("is_selected"))
+            flags = _as_list(_passages_blob(row).get("is_selected"))
             has_selected = any(int(x) == 1 for x in flags)
             if has_selected:
                 if n_sel >= selected_budget:
@@ -168,9 +175,21 @@ def main() -> None:
         type=Path,
         default=ROOT / "data" / "subsample",
     )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Hugging Face hub cache (defaults to ~/.cache/huggingface)",
+    )
     args = parser.parse_args()
     langs = [p.strip() for p in args.languages.split(",") if p.strip()]
-    subsample(langs, args.max_queries, args.split, args.selected_ratio, args.out)
+    subsample(
+        langs,
+        args.max_queries,
+        args.split,
+        args.selected_ratio,
+        args.out,
+        cache_dir=args.cache_dir,
+    )
 
 
 if __name__ == "__main__":

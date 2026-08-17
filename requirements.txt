@@ -17,6 +17,8 @@ rank-bm25>=0.2.2
 # Ingest
 datasets>=3.0.0
 huggingface-hub>=0.25.0
+pyarrow>=17.0.0
+requests>=2.32.0
 tqdm>=4.66.0
 
 # Optional rerank (toggle ENABLE_RERANK)

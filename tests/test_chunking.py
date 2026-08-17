@@ -67,3 +67,14 @@ def test_chunk_corpus_drops_dupes():
     b = RawPassage(9, "LOCATION", "en", 1, 0, "demo", "The Taj Mahal is in Agra.")
     chunks = chunk_corpus([a, b])
     assert len({c.parent_id for c in chunks}) == 1
+
+
+def test_streaming_deduper():
+    from chunking.dedup import StreamingDeduper
+
+    d = StreamingDeduper()
+    assert d.keep("The Taj Mahal is in Agra.")
+    assert not d.keep("The Taj Mahal is in Agra!")
+    assert d.keep("UPI was built by NPCI.")
+    assert d.kept == 2
+    assert d.dropped == 1
