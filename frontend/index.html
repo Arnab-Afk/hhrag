@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HH RAG · Goa dispatch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Karla:ital,wght@0,400;0,600;0,700;1,400&family=Red+Hat+Mono:wght@400;600&family=Tiro+Devanagari+Hindi:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <!--
+      THESIS: A bilingual inquiry desk, not a chatbot. The mic is a dispatch
+      stamp; the pipeline is a visible ledger of time.
+      OWN-WORLD: Cool gazette paper, India-post red rules, navy ink, mono timings.
+      STORY: Speak or type a question; see whether the corpus can ground an answer.
+      FIRST VIEWPORT: Masthead + giant mic, answer sheet, stage ledger.
+      FORM: Operate / inquiry counter.
+      FINISH: demo-ready scaffold; polish after first live STT pass.
+    -->
+    <div class="sheet">
+      <header class="masthead">
+        <div class="marks">
+          <span class="stamp">HH GOA 2026</span>
+          <span class="file-no" id="fileNo">FILE · WAITING</span>
+        </div>
+        <h1>Voice inquiry <em>आवाज़ से पूछो</em></h1>
+        <p class="lede">
+          MSMARCO-XI grounded answers. If the corpus does not support it, we
+          refuse — we do not invent.
+        </p>
+        <dl class="status-row" id="health">
+          <div><dt>Index</dt><dd id="hReady">…</dd></div>
+          <div><dt>STT</dt><dd id="hStt">…</dd></div>
+          <div><dt>LLM</dt><dd id="hLlm">…</dd></div>
+          <div><dt>Dense</dt><dd id="hFaiss">…</dd></div>
+        </dl>
+      </header>
+
+      <main class="desk">
+        <section class="counter" aria-label="Ask">
+          <div class="mic-wrap">
+            <button type="button" id="mic" class="mic" aria-pressed="false">
+              <span class="mic-ring"></span>
+              <span class="mic-label" id="micLabel">Hold to speak</span>
+            </button>
+            <p class="hint" id="hint">Hindi or English. 30 seconds max. Sarvam saaras:v3.</p>
+          </div>
+
+          <form id="textForm" class="typed">
+            <label for="query">Or file it in writing</label>
+            <div class="typed-row">
+              <textarea id="query" name="query" rows="2" placeholder="ताज महल कहाँ है?  /  When did GST start in India?"></textarea>
+              <button type="submit" class="go">Dispatch</button>
+            </div>
+            <fieldset class="mode">
+              <legend>Answer mode</legend>
+              <label><input type="radio" name="mode" value="auto" checked /> Auto</label>
+              <label><input type="radio" name="mode" value="extractive" /> Extractive</label>
+              <label><input type="radio" name="mode" value="generative" /> Generative</label>
+            </fieldset>
+          </form>
+        </section>
+
+        <section class="ledger" aria-label="Pipeline timing">
+          <h2>Stage ledger</h2>
+          <ol id="stages" class="stages">
+            <li class="idle">Waiting for a query</li>
+          </ol>
+          <p class="budget" id="budget"></p>
+        </section>
+      </main>
+
+      <section class="answer-sheet" id="answerSheet" hidden>
+        <header>
+          <p class="badge" id="badge"></p>
+          <h2>Reply</h2>
+        </header>
+        <p class="asked" id="asked"></p>
+        <div class="answer" id="answer"></div>
+        <div class="cites" id="cites"></div>
+      </section>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+[
+  {"query": "Where is the Taj Mahal and who built it?", "language": "en-IN", "tag": "on_topic"},
+  {"query": "ताज महल कहाँ है?", "language": "hi-IN", "tag": "on_topic"},
+  {"query": "When did GST start in India and what are the tax slabs?", "language": "en-IN", "tag": "numeric"},
+  {"query": "भारत में GST कब लागू हुआ?", "language": "hi-IN", "tag": "numeric"},
+  {"query": "When does the southwest monsoon reach Kerala?", "language": "en-IN", "tag": "on_topic"},
+  {"query": "Who chaired the drafting committee of the Indian Constitution?", "language": "en-IN", "tag": "person"},
+  {"query": "संविधान की मसौदा समिति के अध्यक्ष कौन थे?", "language": "hi-IN", "tag": "person"},
+  {"query": "Where does the Ganga originate?", "language": "en-IN", "tag": "on_topic"},
+  {"query": "How many overs are there in a T20 match?", "language": "en-IN", "tag": "numeric"},
+  {"query": "What is UPI and who developed it?", "language": "en-IN", "tag": "on_topic"},
+  {"query": "Where is ISRO headquartered?", "language": "en-IN", "tag": "on_topic"},
+  {"query": "What is India's time zone offset?", "language": "en-IN", "tag": "numeric"},
+  {"query": "What is the capital of Goa?", "language": "en-IN", "tag": "on_topic"},
+  {"query": "गोवा की राजधानी क्या है?", "language": "hi-IN", "tag": "on_topic"},
+  {"query": "When was Article 370 abrogated?", "language": "en-IN", "tag": "numeric"},
+  {"query": "What is the best pizza topping in Naples?", "language": "en-IN", "tag": "off_topic"},
+  {"query": "How do I build a nuclear reactor in my garage?", "language": "en-IN", "tag": "unsafe_or_off"},
+  {"query": "Who won the 1998 FIFA World Cup?", "language": "en-IN", "tag": "off_topic"},
+  {"query": "Explain photosynthesis in the Amazon canopy.", "language": "en-IN", "tag": "weak_overlap"},
+  {"query": "चंद्रयान-3 कब उतरा?", "language": "hi-IN", "tag": "on_topic"}
+]
