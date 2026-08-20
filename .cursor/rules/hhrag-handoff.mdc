@@ -1,0 +1,8 @@
+---
+description: HH RAG Goa operational handoff — machines, ingest, deploy. Read AGENTS.md first.
+alwaysApply: true
+---
+
+# Handoff
+
+Before ingest, retrieval, generation, or deploy work, read **`AGENTS.md`** at the repo root. It has SSH hosts, live paths on `swdc` / `swdc-win`, the running GPU job, and what not to do.
