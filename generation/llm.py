@@ -143,8 +143,9 @@ async def _generate_groq(query: str, chunks: list[Chunk]) -> GenResult:
 )
 async def generate_answer(query: str, chunks: list[Chunk]) -> GenResult:
     settings = get_settings()
-    if settings.anthropic_api_key:
-        return await _generate_anthropic(query, chunks)
+    # Groq first: gpt-oss-20b is ~1000 tok/s. Haiku is the Anthropic fallback.
     if settings.groq_api_key:
         return await _generate_groq(query, chunks)
+    if settings.anthropic_api_key:
+        return await _generate_anthropic(query, chunks)
     return extractive_answer(query, chunks)
