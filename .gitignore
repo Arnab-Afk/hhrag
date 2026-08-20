@@ -1,4 +1,5 @@
 .env
+.anthropic_key
 .venv/
 venv/
 __pycache__/

@@ -10,7 +10,9 @@ is a filename, not a config:
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
+from pathlib import Path
 
 HF_REPO = "ai4bharat/MSMARCO-XI"
 
@@ -55,6 +57,12 @@ def download_parquet(language: str, split: str, cache_dir: str | None = None) ->
     from huggingface_hub import hf_hub_download
 
     filename = parquet_path(language, split)
+    extra = os.environ.get("MSMARCO_PARQUET_DIR")
+    if extra:
+        local = Path(extra) / filename
+        if local.exists():
+            print(f"  using local {local}")
+            return str(local)
     print(f"  downloading hf://datasets/{HF_REPO}/{filename}")
     print("  (Hindi train is ~3.7GB; validation is ~462MB. Cached after the first run.)")
     return hf_hub_download(

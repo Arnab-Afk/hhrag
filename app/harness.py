@@ -153,7 +153,7 @@ class Pipeline:
             )
 
         use_llm = mode == "generative" or (
-            mode == "auto" and bool(settings.groq_api_key)
+            mode == "auto" and settings.llm_configured
         )
         try:
             with timer.stage("generate"):

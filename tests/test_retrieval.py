@@ -41,3 +41,38 @@ def test_msmarco_parquet_paths():
 
     assert "hi" in TRAIN_LANGUAGES
     assert "te" not in TRAIN_LANGUAGES
+
+
+def test_rescore_bm25_ranks_lexical_match_first():
+    from retrieval.sparse import rescore_bm25
+
+    docs = [
+        "the weather in paris is mild",
+        "taj mahal was built by shah jahan in agra",
+        "unrelated cooking recipe",
+    ]
+    order = rescore_bm25("who built the taj mahal", docs)
+    assert order[0] == 1
+
+
+def test_chunk_offsets_roundtrip(tmp_path):
+    from retrieval.chunk_store import build_line_offsets, ensure_offsets, read_rows
+
+    jsonl = tmp_path / "chunks.jsonl"
+    rows = [
+        {"chunk_id": "a", "text": "first"},
+        {"chunk_id": "b", "text": ""},
+        {"chunk_id": "c", "text": "third"},
+    ]
+    import orjson
+
+    with jsonl.open("wb") as handle:
+        for row in rows:
+            handle.write(orjson.dumps(row) + b"\n")
+    offsets = build_line_offsets(jsonl)
+    assert len(offsets) == 2
+    loaded = ensure_offsets(tmp_path)
+    assert len(loaded) == 2
+    fetched = read_rows(jsonl, loaded, [1, 0])
+    assert fetched[1]["text"] == "third"
+    assert fetched[0]["text"] == "first"

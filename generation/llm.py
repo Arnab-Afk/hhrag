@@ -51,17 +51,57 @@ def _parse_json(text: str) -> dict:
     return json.loads(text)
 
 
-@retry(
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=0.25, min=0.25, max=2),
-    retry=retry_if_exception_type((httpx.HTTPError, GenerationError)),
-    reraise=True,
-)
-async def generate_answer(query: str, chunks: list[Chunk]) -> GenResult:
-    settings = get_settings()
-    if not settings.groq_api_key:
-        return extractive_answer(query, chunks)
+def _result_from_payload(data: dict) -> GenResult:
+    citations = data.get("citation_ids") or []
+    if isinstance(citations, str):
+        citations = [citations]
+    return GenResult(
+        answer=str(data.get("answer") or "").strip(),
+        citation_ids=[str(c) for c in citations],
+        grounded=bool(data.get("grounded", True)),
+        confidence=float(data.get("confidence") or 0.5),
+        mode="generative",
+    )
 
+
+async def _generate_anthropic(query: str, chunks: list[Chunk]) -> GenResult:
+    settings = get_settings()
+    payload_chunks = [c.model_dump() for c in chunks[:6]]
+    body = {
+        "model": settings.anthropic_model,
+        "temperature": 0.1,
+        "max_tokens": 400,
+        "system": SYSTEM_PROMPT,
+        "messages": [
+            {"role": "user", "content": build_user_prompt(query, payload_chunks)},
+        ],
+    }
+    headers = {
+        "x-api-key": settings.anthropic_api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=settings.generate_timeout_s) as client:
+        response = await client.post(
+            f"{settings.anthropic_base_url}/v1/messages",
+            headers=headers,
+            json=body,
+        )
+    if response.status_code >= 400:
+        logger.warning("Anthropic error %s: %s", response.status_code, response.text[:400])
+        raise GenerationError(f"Generation failed ({response.status_code})")
+
+    parts = response.json().get("content") or []
+    text = "".join(part.get("text", "") for part in parts if part.get("type") == "text")
+    try:
+        data = _parse_json(text)
+    except json.JSONDecodeError as exc:
+        raise GenerationError("Model did not return JSON") from exc
+    return _result_from_payload(data)
+
+
+async def _generate_groq(query: str, chunks: list[Chunk]) -> GenResult:
+    settings = get_settings()
     payload_chunks = [c.model_dump() for c in chunks[:6]]
     body = {
         "model": settings.groq_model,
@@ -92,14 +132,19 @@ async def generate_answer(query: str, chunks: list[Chunk]) -> GenResult:
         data = _parse_json(content)
     except json.JSONDecodeError as exc:
         raise GenerationError("Model did not return JSON") from exc
+    return _result_from_payload(data)
 
-    citations = data.get("citation_ids") or []
-    if isinstance(citations, str):
-        citations = [citations]
-    return GenResult(
-        answer=str(data.get("answer") or "").strip(),
-        citation_ids=[str(c) for c in citations],
-        grounded=bool(data.get("grounded", True)),
-        confidence=float(data.get("confidence") or 0.5),
-        mode="generative",
-    )
+
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=0.25, min=0.25, max=2),
+    retry=retry_if_exception_type((httpx.HTTPError, GenerationError)),
+    reraise=True,
+)
+async def generate_answer(query: str, chunks: list[Chunk]) -> GenResult:
+    settings = get_settings()
+    if settings.anthropic_api_key:
+        return await _generate_anthropic(query, chunks)
+    if settings.groq_api_key:
+        return await _generate_groq(query, chunks)
+    return extractive_answer(query, chunks)

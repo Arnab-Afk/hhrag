@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,10 +26,22 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.1-8b-instant"
     groq_base_url: str = "https://api.groq.com/openai/v1"
 
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-haiku-4-5-20251001"
+    anthropic_base_url: str = "https://api.anthropic.com"
+
     index_dir: Path = ROOT / "indexes"
     data_dir: Path = ROOT / "data"
     embedding_model: str = "intfloat/multilingual-e5-small"
     languages: str = "hi,en"
+
+    @field_validator("index_dir", "data_dir", mode="after")
+    @classmethod
+    def _resolve_under_root(cls, value: Path) -> Path:
+        path = Path(value)
+        if not path.is_absolute():
+            path = ROOT / path
+        return path
 
     retrieve_top_k: int = 20
     rrf_k: int = 60
@@ -56,6 +69,10 @@ class Settings(BaseSettings):
     @property
     def language_list(self) -> list[str]:
         return [part.strip() for part in self.languages.split(",") if part.strip()]
+
+    @property
+    def llm_configured(self) -> bool:
+        return bool(self.anthropic_api_key or self.groq_api_key)
 
 
 @lru_cache(maxsize=1)

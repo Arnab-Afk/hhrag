@@ -29,8 +29,12 @@ async def lifespan(app: FastAPI):
     logger.info("Languages: %s", settings.language_list)
     try:
         pipeline = Pipeline()
-        _ = pipeline.retriever
-        logger.info("Retriever ready (%s shards)", len(pipeline.retriever.shards))
+        retriever = pipeline.retriever
+        logger.info("Retriever ready (%s shards)", len(retriever.shards))
+        for name in retriever.shards:
+            retriever._shard(name)
+        retriever.embedder.encode_query("warmup")
+        logger.info("Shards mmapped and embedder warmed")
     except FileNotFoundError as exc:
         logger.warning("%s", exc)
         pipeline = Pipeline()
@@ -80,7 +84,7 @@ async def health():
         "shards": shards,
         "faiss": faiss_available(),
         "stt_configured": bool(settings.sarvam_api_key),
-        "llm_configured": bool(settings.groq_api_key),
+        "llm_configured": settings.llm_configured,
         "embedding_model": settings.embedding_model,
     }
 

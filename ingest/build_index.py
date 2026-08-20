@@ -54,6 +54,7 @@ class IndexBuilder:
         embedder: Embedder,
         batch_size: int = 256,
         flush_every: int = 2048,
+        skip_sparse: bool = True,
     ) -> None:
         self.language = language
         self.shard_dir = out_dir / language
@@ -61,6 +62,7 @@ class IndexBuilder:
         self.embedder = embedder
         self.batch_size = batch_size
         self.flush_every = flush_every
+        self.skip_sparse = skip_sparse
         self.dense: DenseIndex | None = None
         self.sparse = SparseIndex()
         self.buffer: list[BuiltChunk] = []
@@ -85,7 +87,8 @@ class IndexBuilder:
         if self.dense is None:
             self.dense = DenseIndex(dim=int(vectors.shape[1]), use_hnsw=True)
         self.dense.add(np.asarray(vectors, dtype=np.float32))
-        self.sparse.add(texts)
+        if not self.skip_sparse:
+            self.sparse.add(texts)
         for chunk in self.buffer:
             self._jsonl.write(orjson.dumps(chunk.to_dict()) + b"\n")
             self.strategies.add(chunk.strategy)
@@ -99,7 +102,11 @@ class IndexBuilder:
             print(f"skip {self.language}: no chunks")
             return
         self.dense.save(self.shard_dir)
-        self.sparse.save(self.shard_dir)
+        if not self.skip_sparse:
+            self.sparse.save(self.shard_dir)
+        from retrieval.chunk_store import ensure_offsets
+
+        ensure_offsets(self.shard_dir)
         meta = {
             "language": self.language,
             "n_passages": self.n_passages,

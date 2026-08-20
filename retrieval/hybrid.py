@@ -9,12 +9,16 @@ import orjson
 
 from app.config import Settings, get_settings
 from app.schemas import Chunk, RetrievalResult
+from retrieval.chunk_store import ensure_offsets, read_rows
 from retrieval.dense import DenseIndex
 from retrieval.embedder import Embedder, get_embedder
 from retrieval.fusion import apply_metadata_boost, rrf_fuse
 from retrieval.language import shard_for_language_code
 from retrieval.query_type import guess_query_type
-from retrieval.sparse import SparseIndex
+from retrieval.sparse import rescore_bm25
+
+# Dense shortlist size before BM25 rerank. Must stay tiny vs corpus size.
+SPARSE_CANDIDATES = 50
 
 logger = logging.getLogger(__name__)
 
@@ -39,33 +43,60 @@ class LanguageShard:
     def __init__(
         self,
         language: str,
-        chunks: list[dict[str, Any]],
         dense: DenseIndex,
-        sparse: SparseIndex,
+        *,
+        rows: list[dict[str, Any]] | None = None,
+        jsonl: Path | None = None,
+        offsets: np.ndarray | None = None,
     ) -> None:
         self.language = language
-        self.chunks = chunks
         self.dense = dense
-        self.sparse = sparse
+        self._rows = rows
+        self._jsonl = jsonl
+        self._offsets = offsets
+
+    def _fetch(self, ids: list[int]) -> dict[int, dict[str, Any]]:
+        found: dict[int, dict[str, Any]] = {}
+        if self._rows is not None:
+            for idx in ids:
+                if 0 <= idx < len(self._rows):
+                    found[idx] = self._rows[idx]
+            return found
+        if self._jsonl is None or self._offsets is None:
+            return found
+        return read_rows(self._jsonl, self._offsets, ids)
 
     @classmethod
     def load(cls, path: Path) -> "LanguageShard":
         meta = orjson.loads((path / "shard_meta.json").read_bytes())
         jsonl = path / "chunks.jsonl"
         blob = path / "chunks.json"
-        if jsonl.exists():
-            rows = [
-                orjson.loads(line)
-                for line in jsonl.open("rb")
-                if line.strip()
-            ]
-        elif blob.exists():
-            rows = orjson.loads(blob.read_bytes())
-        else:
-            raise FileNotFoundError(f"No chunks.jsonl or chunks.json in {path}")
         dense = DenseIndex.load(path)
-        sparse = SparseIndex.load(path)
-        return cls(language=meta["language"], chunks=rows, dense=dense, sparse=sparse)
+        if jsonl.exists():
+            offsets = ensure_offsets(path)
+            logger.info(
+                "Shard %s: faiss ntotal=%s jsonl offsets=%s",
+                meta["language"],
+                dense.ntotal,
+                len(offsets),
+            )
+            if dense.ntotal and abs(int(dense.ntotal) - len(offsets)) > 1:
+                logger.warning(
+                    "Shard %s offset/faiss mismatch: offsets=%s ntotal=%s",
+                    meta["language"],
+                    len(offsets),
+                    dense.ntotal,
+                )
+            return cls(
+                language=meta["language"],
+                dense=dense,
+                jsonl=jsonl,
+                offsets=offsets,
+            )
+        if blob.exists():
+            rows = orjson.loads(blob.read_bytes())
+            return cls(language=meta["language"], dense=dense, rows=rows)
+        raise FileNotFoundError(f"No chunks.jsonl or chunks.json in {path}")
 
     def search(
         self,
@@ -76,24 +107,32 @@ class LanguageShard:
         dense_weight: float,
         sparse_weight: float,
     ) -> list[Chunk]:
-        d_scores, d_ids = self.dense.search(query_vec, top_k)
-        s_scores, s_ids = self.sparse.search(query, top_k)
+        candidate_k = max(top_k, SPARSE_CANDIDATES)
+        _d_scores, d_ids = self.dense.search(query_vec, candidate_k)
         dense_ids = [int(i) for i in d_ids if i >= 0]
+        if not dense_ids:
+            return []
+        by_id = self._fetch(dense_ids)
+        ordered_ids = [i for i in dense_ids if i in by_id]
+        texts = [by_id[i]["text"] for i in ordered_ids]
+        local_rank = rescore_bm25(query, texts)
+        sparse_ids = [ordered_ids[i] for i in local_rank]
         fused = rrf_fuse(
-            dense_ids,
-            list(s_ids),
+            ordered_ids,
+            sparse_ids,
             k=rrf_k,
             dense_weight=dense_weight,
             sparse_weight=sparse_weight,
         )
-        dense_rank = {int(i): r + 1 for r, i in enumerate(dense_ids)}
-        sparse_rank = {int(i): r + 1 for r, i in enumerate(s_ids)}
+        dense_rank = {int(i): r + 1 for r, i in enumerate(ordered_ids)}
+        sparse_rank = {int(i): r + 1 for r, i in enumerate(sparse_ids)}
         ranked = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
         out: list[Chunk] = []
         for idx, score in ranked:
-            if idx < 0 or idx >= len(self.chunks):
+            row = by_id.get(idx)
+            if row is None:
                 continue
-            chunk = _row_to_chunk(self.chunks[idx], score)
+            chunk = _row_to_chunk(row, score)
             chunk.dense_rank = dense_rank.get(idx)
             chunk.sparse_rank = sparse_rank.get(idx)
             out.append(chunk)
@@ -133,6 +172,20 @@ class HybridRetriever:
             )
         for child in sorted(root.iterdir()):
             if not child.is_dir():
+                continue
+            meta_path = child / "shard_meta.json"
+            if not meta_path.exists():
+                continue
+            try:
+                meta = orjson.loads(meta_path.read_bytes())
+            except Exception:
+                continue
+            n_chunks = int(meta.get("n_chunks") or 0)
+            jsonl = child / "chunks.jsonl"
+            # Stale demo meta sitting on a full-train jsonl — skip until finalized.
+            if jsonl.exists() and jsonl.stat().st_size > 50_000_000 and n_chunks < 1_000:
+                continue
+            if not (child / "faiss.index").exists() and not (child / "vectors.npy").exists():
                 continue
             if (child / "chunks.jsonl").exists() or (child / "chunks.json").exists():
                 shard_dirs[child.name] = child
